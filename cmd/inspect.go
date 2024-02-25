@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"bufio"
 	"encoding/json"
@@ -34,6 +35,7 @@ var inspectCmd = &cobra.Command{
 		The command outputs a table for each project, listing the dependencies, the version in the package.json, and the current version in your local declaration. 
 		`,
 	Run: func(cmd *cobra.Command, args []string) {
+		start := time.Now()
 		if len(args) == 0 && file == "" {
 			fmt.Println("Please, provide at least one folder to inspect")
 			return
@@ -47,24 +49,25 @@ var inspectCmd = &cobra.Command{
 			paths = append(paths, args...)
 		}
 		files := make([]string, 0)
+		filesChan := make(chan []string, len(paths))
+
 		for _, folder := range paths {
-			jsonFiles, err := GetPackageJsonFiles(folder, "")
-			if err != nil {
-				panic(err)
-			}
+			go func(folder string) {
+				jsonFiles, err := GetPackageJsonFiles(folder, "")
+				if err != nil {
+					panic(err)
+				}
+				filesChan <- jsonFiles
+			}(folder)
+		}
+
+		for range paths {
+			jsonFiles := <-filesChan
 			files = append(files, jsonFiles...)
 		}
-		packages := make([]Package, 0)
-		for _, file := range files {
-
-			json, err := readJsonFile(file)
-			if err != nil {
-				panic(err)
-			}
-			pkg := processJsonFile(json, file)
-			packages = append(packages, pkg)
-		}
-		processPackages(packages)
+		processJsonFiles(files)
+		duration := time.Since(start)
+		fmt.Println(duration)
 	},
 }
 
@@ -86,10 +89,7 @@ func (p Package) PrettyPrint() {
 	w := tabwriter.NewWriter(os.Stdout, 10, 1, 1, ' ', tabwriter.Debug)
 	if len(p.dependencyInspects) > 0 {
 		fmt.Fprintf(w, "\n")
-		fmt.Fprintf(w, "-----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-		fmt.Fprintf(w, "%s %s\n", p.name, p.path)
-		fmt.Fprintf(w, "-----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-		fmt.Fprintf(w, "%s\t%s\t%s\t\n", "name", "versionInPackageJson", "localVersion")
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t\n", p.name+":"+p.path, "versionInPackageJson", "localVersion", "Check")
 	}
 	for _, dep := range p.dependencyInspects {
 		if dep.name != "" {
@@ -113,7 +113,7 @@ func (p DependencyInspect) PrintAsTable(w *tabwriter.Writer) *tabwriter.Writer {
 	} else {
 		shouldUpdateValue = "✓"
 	}
-	fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.name, p.versionInPackageJson, p.currentVersion, shouldUpdateValue)
+	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t\n", p.name, p.versionInPackageJson, p.currentVersion, shouldUpdateValue)
 	return w
 }
 
@@ -145,6 +145,34 @@ func readJsonFile(path string) (map[string]interface{}, error) {
 	var result map[string]interface{}
 	json.Unmarshal([]byte(byteValue), &result)
 	return result, nil
+}
+
+func processJsonFiles(files []string) {
+	packageChan := make(chan Package, len(files))
+	errChan := make(chan error, len(files))
+
+	for _, file := range files {
+		go func(file string) {
+			json, err := readJsonFile(file)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			pkg := processJsonFile(json, file)
+			packageChan <- pkg
+		}(file)
+	}
+
+	var packages []Package
+	for i := 0; i < len(files); i++ {
+		select {
+		case pkg := <-packageChan:
+			packages = append(packages, pkg)
+		case err := <-errChan:
+			panic(err)
+		}
+	}
+	processPackages(packages)
 }
 
 func processJsonFile(json map[string]interface{}, path string) Package {

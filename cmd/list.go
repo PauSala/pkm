@@ -43,12 +43,24 @@ func GetPackageJsonFiles(path string, omit string) (result []string, err error) 
 
 	for _, e := range entries {
 		if e.IsDir() && !strings.Contains(e.Name(), "node_modules") && e.Name() != omit {
+			resultsChan := make(chan []string)
+			errorsChan := make(chan error)
 			path := path + "/" + e.Name()
-			child, err := GetPackageJsonFiles(path, omit)
-			if err != nil {
+			go func() {
+				child, err := GetPackageJsonFiles(path, omit)
+				if err != nil {
+					errorsChan <- err
+				} else {
+					resultsChan <- child
+				}
+			}()
+			// Use the results
+			select {
+			case res := <-resultsChan:
+				result = append(result, res...)
+			case err := <-errorsChan:
 				fmt.Println(err.Error())
 			}
-			result = append(result, child...)
 		}
 		if e.Name() == "package.json" {
 			path := path + "/" + e.Name()
