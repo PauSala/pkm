@@ -27,10 +27,13 @@ var file string
 // inspectCmd represents the inspect command
 var inspectCmd = &cobra.Command{
 	Use:   "inspect",
-	Short: "A brief description of your command",
-	Long:  ``,
+	Short: "Analyzes package.json dependencies across projects",
+	Long: `
+		The 'inspect' command scans the provided directories or directories listed in a file for package.json files. 
+		It extracts the dependencies and their versions from each package.json file and compares them with the current version in your local declaration. 
+		The command outputs a table for each project, listing the dependencies, the version in the package.json, and the current version in your local declaration. 
+		`,
 	Run: func(cmd *cobra.Command, args []string) {
-		//projects, _ := cmd.Flags().GetBool("projects")
 		if len(args) == 0 && file == "" {
 			fmt.Println("Please, provide at least one folder to inspect")
 			return
@@ -39,6 +42,9 @@ var inspectCmd = &cobra.Command{
 		if file != "" {
 			readed := readInputFile(file)
 			paths = append(paths, readed...)
+		}
+		if len(args) > 0 {
+			paths = append(paths, args...)
 		}
 		files := make([]string, 0)
 		for _, folder := range paths {
@@ -65,7 +71,6 @@ var inspectCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(inspectCmd)
 	inspectCmd.Flags().StringVarP(&file, "file", "f", "", "Path to the file containing a list of paths to projects")
-	//inspectCmd.Flags().BoolP("projects", "p", false, "Path to the directory")
 }
 
 type Package struct {
@@ -84,7 +89,7 @@ func (p Package) PrettyPrint() {
 		fmt.Fprintf(w, "-----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		fmt.Fprintf(w, "%s %s\n", p.name, p.path)
 		fmt.Fprintf(w, "-----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-		fmt.Fprintf(w, "%s\t%s\t%s\t\n", "name", "versionInPackageJson", "versionInPackageJson")
+		fmt.Fprintf(w, "%s\t%s\t%s\t\n", "name", "versionInPackageJson", "localVersion")
 	}
 	for _, dep := range p.dependencyInspects {
 		if dep.name != "" {
@@ -174,9 +179,8 @@ func processPackages(pkgs []Package) {
 	for _, pkg := range pkgs {
 		for key, dep := range pkg.dependencies {
 			if value, ok := packageNames[key]; ok {
-				//fmt.Printf("path: %s dependency: %s version: %s currentVersion: %s\n", pkg.path, key, dep, value)
 				versionName := key
-				versionInPackageJson := dep.(string) // Perform type assertion to convert to string
+				versionInPackageJson := dep.(string)
 				versionInPackageJson = strings.ReplaceAll(versionInPackageJson, "^", "")
 				versionInPackageJson = strings.ReplaceAll(versionInPackageJson, "~", "")
 				currentVersion := value
@@ -187,9 +191,7 @@ func processPackages(pkgs []Package) {
 				pkg.dependencyInspects = append(pkg.dependencyInspects, dependencyInspect)
 			}
 		}
-
 		pkg.PrettyPrint()
-
 	}
 }
 
